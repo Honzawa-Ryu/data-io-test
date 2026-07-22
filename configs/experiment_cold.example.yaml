@@ -1,0 +1,28 @@
+# cold計測用の実験定義サンプル(手動drop_caches運用)。
+# 使い方: ジョブ投入直前に対象ノードで `sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`
+#         を実行してから投入する。詳細は docs/howto.md 参照。
+#
+# ★ external戦略は「最初の読みだけがcold」なので repetitions は必ず 1。
+#   cold試行を複数取るなら「手動drop → 投入」を繰り返す(各ジョブが独立にcold初回を測る)。
+
+purpose: campaign
+repetitions: 1                    # external戦略では必ず1(2以降はwarm化する)
+
+cache_policy:
+  mode: cold
+  drop_caches_strategy: external  # ライブラリはdropせず、手動drop済み前提でcold記録
+
+matrix:
+  format: [webdataset, raw]
+  storage: [hdd, ssd_scratch]
+  num_workers: [8]
+  shuffle_mode: [shard]
+  decode: [true]
+
+dataset:
+  ref: campaign_ds
+  shard_size_bytes: 536870912     # 512MB
+
+output:
+  jsonl: results/trials_cold.jsonl
+  purpose_tag: campaign
