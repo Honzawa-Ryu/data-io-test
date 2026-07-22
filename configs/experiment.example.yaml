@@ -1,0 +1,24 @@
+# iobench loader/staging/multi 向け実験定義YAMLのサンプル。
+# purpose: dev はライブラリ動作確認用。本計測では campaign を指定する(goal.md 6節)。
+
+purpose: dev
+repetitions: 3
+
+cache_policy:
+  mode: cold                     # cold | warm | auto
+  drop_caches_strategy: sudo_tee # 既定実装。運用が固まれば差し替え可能
+
+matrix:
+  format: [raw, webdataset]
+  storage: [nfs, ssd_scratch]
+  num_workers: [0, 8]
+  shuffle_mode: [shard, full]
+  decode: [true]
+
+dataset:
+  ref: synth_dev_v1
+  shard_size_bytes: 536870912   # 512MB
+
+output:
+  jsonl: results/trials.jsonl
+  purpose_tag: dev

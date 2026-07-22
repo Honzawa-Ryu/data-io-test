@@ -13,6 +13,9 @@
 .env.*
 local_settings.py
 
+# machine固有のノード構成(各マシンで nodes.example.yaml からコピーして作る)
+/configs/nodes.yaml
+
 
 # ===================================================================
 #  Virtual environments
