@@ -1,7 +1,6 @@
 """iobench 統一CLIエントリポイント。
 
-probe/storage/datagen/report/clean はフェーズ2実装済み。
-loader/staging/multi/slurm はフェーズ3・4で実装予定のためスタブ(NotImplementedError)のまま。
+probe/storage/datagen/loader/staging/multi/slurm/report/clean の各サブコマンドを提供する。
 """
 
 from __future__ import annotations
