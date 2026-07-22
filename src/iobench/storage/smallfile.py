@@ -36,8 +36,9 @@ def run_smallfile_benchmark(
         p.unlink()
     d.rmdir()
 
+    eps = 1e-9
     return {
-        "write_ops_s": file_count / write_elapsed if write_elapsed > 0 else None,
-        "meta_ops_s": file_count / stat_elapsed if stat_elapsed > 0 else None,
-        "read_ops_s": file_count / read_elapsed if read_elapsed > 0 else None,
+        "write_ops_s": file_count / max(write_elapsed, eps),
+        "meta_ops_s": file_count / max(stat_elapsed, eps),
+        "read_ops_s": file_count / max(read_elapsed, eps),
     }
