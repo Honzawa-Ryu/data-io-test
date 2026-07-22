@@ -24,7 +24,7 @@ node_classes:            # 構成X/Y/Zの定義(キーは "X" | "Y" | "Z")
 |---|---|---|
 | `node_classes` | map | キーは `X`/`Y`/`Z`。各構成の定義 |
 | `.match.partition` | list[str] | 一致するパーティション名の一覧 |
-| `.match.hostname_pattern` | str\|null | ホスト名の正規表現(完全一致) |
+| `.match.hostname_pattern` | str\|null | ホスト名のglobパターン(fnmatch)。例: `"*andre01*"` |
 | `.match.constraint` | list[str] | 一致するconstraint語の一覧 |
 | `.paths` | map[str, str\|null] | 論理名(`nfs`/`hdd`/`ssd_scratch`/`tmpfs`/`unified`)→実パス |
 | `.unified_memory` | bool | ユニファイドメモリ構成か |
