@@ -1,4 +1,4 @@
-"""実行ノールから素の環境情報(fact)を収集する。分類ロジックは classify.py 側。"""
+"""実行ノードから素の環境情報(fact)を収集する。分類ロジックは classify.py 側。"""
 
 from __future__ import annotations
 
