@@ -14,14 +14,10 @@ class FioNotFoundError(RuntimeError):
     """fioがOSに導入されていない。"""
 
 
-def run_fio(preset: FioPreset, target_dir: str, runtime_sec: int = 10, size: str = "1G") -> dict:
-    if shutil.which("fio") is None:
-        raise FioNotFoundError(
-            "fio が見つかりません。計算ノードに `apt-get install fio` 等で導入してください。"
-        )
-    Path(target_dir).mkdir(parents=True, exist_ok=True)
+def build_fio_command(preset: FioPreset, target_dir: str, runtime_sec: int = 10, size: str = "1G") -> list[str]:
+    """fioコマンドを組み立てる(実行はしない)。fio非依存でテスト可能にするため分離。"""
     testfile = str(Path(target_dir) / f"iobench_fio_{preset['name']}")
-    cmd = [
+    return [
         "fio",
         f"--name={preset['name']}",
         f"--filename={testfile}",
@@ -36,6 +32,15 @@ def run_fio(preset: FioPreset, target_dir: str, runtime_sec: int = 10, size: str
         "--group_reporting",
         "--output-format=json",
     ]
+
+
+def run_fio(preset: FioPreset, target_dir: str, runtime_sec: int = 10, size: str = "1G") -> dict:
+    if shutil.which("fio") is None:
+        raise FioNotFoundError(
+            "fio が見つかりません。計算ノードに `apt-get install fio` 等で導入してください。"
+        )
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
+    cmd = build_fio_command(preset, target_dir, runtime_sec=runtime_sec, size=size)
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return json.loads(result.stdout)
 

@@ -48,10 +48,13 @@ def probe(ctx: click.Context, node_class: str | None) -> None:
 
     hostnameパターンが合わないマシンでは --node-class か環境変数 IOBENCH_NODE_CLASS で明示できる。
     """
-    from iobench.probe import run_probe
+    from iobench.probe import ProbeClassificationError, run_probe
 
     nodes_config = _load_nodes_config(ctx.obj["nodes_config"])
-    result = run_probe(nodes_config, force_node_class=node_class)
+    try:
+        result = run_probe(nodes_config, force_node_class=node_class)
+    except ProbeClassificationError as e:
+        raise click.ClickException(str(e)) from e
     click.echo(result.model_dump_json(indent=2))
 
 
@@ -71,6 +74,7 @@ def storage(
     """fioプリセット(またはNFS小ファイルベンチ)を実行しストレージ素性を計測する。"""
     from iobench.storage import (
         NFS_SMALLFILE_PRESET,
+        FioNotFoundError,
         get_preset,
         iter_presets,
         parse_fio_result,
@@ -95,7 +99,10 @@ def storage(
         )
     else:
         preset_cfg = get_preset(preset)
-        raw = run_fio(preset_cfg, target, runtime_sec=runtime)
+        try:
+            raw = run_fio(preset_cfg, target, runtime_sec=runtime)
+        except FioNotFoundError as e:
+            raise click.ClickException(str(e)) from e
         metrics = parse_fio_result(raw)
 
     click.echo(metrics)
