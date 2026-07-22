@@ -74,7 +74,7 @@ iobench report --jsonl results/trials.jsonl --out results/report
 新しい計算ノード(構成)を追加する場合:
 
 1. `configs/nodes.yaml` の `node_classes` に新しいキー(またはX/Y/Zいずれかへの追加match条件)を書く
-2. `match` にホスト名パターン/パーティション名/constraintのいずれかを指定(いずれか一致で分類される)
+2. `match` にホスト名パターン/パーティション名/constraint等の条件を書く(空でない条件は **すべて一致(AND)** したときに分類される)
 3. `paths` に論理ストレージ名(`nfs`/`hdd`/`ssd_scratch`/`tmpfs`/`unified`)→実マウントパスを記入
 4. `iobench probe` を新ノード上で実行し、意図した構成に分類されることを確認する(分類できない場合はエラーで停止するので、その場合はmatch条件を見直す)
 
