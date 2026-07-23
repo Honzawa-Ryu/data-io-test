@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import shutil
 import tarfile
 import time
 from pathlib import Path
@@ -23,6 +24,9 @@ def generate_webdataset(
 ) -> dict:
     rng = np.random.default_rng(seed)
     root = Path(out_dir)
+    # 別フォーマットの残骸や前回生成物が混ざらないよう、出力先は毎回作り直す(zarr側と同じ方針)
+    if root.exists():
+        shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
 
     shard_idx = 0

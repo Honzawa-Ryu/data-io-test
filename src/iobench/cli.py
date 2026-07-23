@@ -121,6 +121,7 @@ def storage(
 @click.option("--files-per-dir", default=1000, show_default=True, type=int, help="raw用: ディレクトリあたりファイル数")
 @click.option("--shard-size", "shard_size_bytes", default=512 * 1024 * 1024, show_default=True, type=int, help="webdataset用シャードサイズ(bytes)")
 @click.option("--chunk-size", "chunk_size_bytes", default=1024 * 1024, show_default=True, type=int, help="hdf5/zarr用チャンクサイズ(bytes)")
+@click.option("--skip-v2", is_flag=True, default=False, help="zarr用: 参考用Zarr v2の生成を省略する")
 @click.option("--seed", default=0, show_default=True, type=int)
 @click.pass_context
 def datagen(
@@ -133,12 +134,13 @@ def datagen(
     files_per_dir: int,
     shard_size_bytes: int,
     chunk_size_bytes: int,
+    skip_v2: bool,
     seed: int,
 ) -> None:
     """合成画像データセットを指定フォーマットで生成する。
 
     --format zarr は goal.md 2.5 の「Zarr v3 sharded + 参考用Zarr v2」を同一seedで
-    同時生成する(v3が主系列、v2は比較用参考コピー)。
+    同時生成する(v3が主系列、v2は比較用参考コピー)。--skip-v2 でv2生成を省略できる。
     """
     from iobench.datagen import generate_hdf5, generate_raw, generate_webdataset, generate_zarr_pair
 
@@ -149,7 +151,9 @@ def datagen(
     elif fmt == "hdf5":
         meta = generate_hdf5(out, num_images, chunk_size_bytes=chunk_size_bytes, height=height, width=width, seed=seed)
     else:
-        meta = generate_zarr_pair(out, num_images, chunk_size_bytes=chunk_size_bytes, height=height, width=width, seed=seed)
+        meta = generate_zarr_pair(
+            out, num_images, chunk_size_bytes=chunk_size_bytes, height=height, width=width, seed=seed, skip_v2=skip_v2
+        )
 
     click.echo(meta)
 
@@ -195,16 +199,82 @@ def loader(
 @click.option("--src", required=True, help="転送元パス")
 @click.option("--dst", required=True, help="転送先パス(SSD scratch等)")
 @click.option("--bwlimit", default=None, help="転送帯域制限(rsync系のみ、例: 100m)")
+@click.option(
+    "--format",
+    "fmt",
+    required=True,
+    type=click.Choice(["raw", "webdataset", "hdf5", "zarr_v3", "zarr_v2"]),
+    help="転送するデータのレイアウト(reportでloader結果と突合する結合キー)",
+)
+@click.option(
+    "--jsonl",
+    "jsonl_path",
+    default="results/trials_staging.jsonl",
+    show_default=True,
+    help="結果を追記するJSON Linesパス",
+)
+@click.option(
+    "--cache-state",
+    type=click.Choice(["cold", "warm"]),
+    default="warm",
+    show_default=True,
+    help="投入直前に外部でdrop_caches済みならcold(external運用)。それ以外はwarm",
+)
+@click.option("--purpose", type=click.Choice(["dev", "campaign"]), default="dev", show_default=True)
+@click.option("--src-logical", default=None, help="srcの論理ストレージ名(自動解決できないとき明示)")
+@click.option("--dst-logical", default=None, help="dstの論理ストレージ名(自動解決できないとき明示)")
+@click.option("--node-class", "node_class", default=None, help="構成を明示指定し自動分類をスキップ")
 @click.pass_context
-def staging(ctx: click.Context, tool: str, src: str, dst: str, bwlimit: str | None) -> None:
-    """ソース→SSDの転送を計測する(T_stage)。損益分岐Eは iobench report で算出。"""
-    from iobench.staging import run_transfer
+def staging(
+    ctx: click.Context,
+    tool: str,
+    src: str,
+    dst: str,
+    bwlimit: str | None,
+    fmt: str,
+    jsonl_path: str,
+    cache_state: str,
+    purpose: str,
+    src_logical: str | None,
+    dst_logical: str | None,
+    node_class: str | None,
+) -> None:
+    """ソース→SSDの転送を計測し(T_stage)、結果をJSONLへ記録する。
+
+    損益分岐Eは iobench report が同じjsonl群のloader結果と突合して算出する。
+    """
+    from iobench.gitinfo import get_git_hash
+    from iobench.probe import ProbeClassificationError, run_probe
+    from iobench.results.writer import append_record
+    from iobench.staging import build_staging_record, run_transfer
+
+    nodes_config = _load_nodes_config(ctx.obj["nodes_config"])
+    try:
+        probe_result = run_probe(nodes_config, force_node_class=node_class)
+    except ProbeClassificationError as e:
+        raise click.ClickException(str(e)) from e
 
     result = run_transfer(tool, src, dst, bwlimit=bwlimit)
     click.echo(
         f"tool={result.tool} bytes={result.total_bytes} "
         f"T_stage={result.elapsed_seconds:.3f}s throughput={result.throughput_mb_s:.2f}MB/s"
     )
+
+    try:
+        record = build_staging_record(
+            result,
+            probe_result,
+            fmt=fmt,
+            cache_state=cache_state,
+            purpose=purpose,
+            library_version=get_git_hash(),
+            src_logical=src_logical,
+            dst_logical=dst_logical,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    append_record(record, jsonl_path)
+    click.echo(f"1試行を記録しました -> {jsonl_path}")
 
 
 @main.command()
@@ -308,18 +378,28 @@ def slurm_submit(script_path: str, dependency: str | None, node: str | None) -> 
 
 
 @main.command()
-@click.option("--jsonl", "jsonl_path", required=True, help="結果JSON Linesのパス")
+@click.option(
+    "--jsonl",
+    "jsonl_paths",
+    required=True,
+    multiple=True,
+    help="結果JSON Linesのパス(複数指定可: loader系とstaging系をまとめて突合する)",
+)
 @click.option("--out", "out_dir", required=True, help="集計出力先ディレクトリ")
 @click.option("--no-plots", is_flag=True, default=False, help="グラフ生成をスキップしCSVのみ出力")
 @click.pass_context
-def report(ctx: click.Context, jsonl_path: str, out_dir: str, no_plots: bool) -> None:
-    """結果JSONL/CSVから集計表(中央値/min/max)とグラフを生成する。
+def report(ctx: click.Context, jsonl_paths: tuple[str, ...], out_dir: str, no_plots: bool) -> None:
+    """結果JSONL/CSVから集計表(中央値/min/max)・グラフ・損益分岐表を生成する。
 
     グラフ: スループット比較、シャード/チャンクサイズ掃引カーブ、(データがあれば)多重負荷劣化。
+    staging試行とloader試行が両方あれば breakeven_table.csv(損益分岐エポック数E)も出力する。
     """
     from iobench.results import aggregate, check_cache_state_consistency, load_records, to_rows
+    from iobench.results.report import build_breakeven_rows
 
-    records = load_records(jsonl_path)
+    records = []
+    for p in jsonl_paths:
+        records.extend(load_records(p))
     check_cache_state_consistency(records)
     rows = to_rows(records)
 
@@ -332,13 +412,22 @@ def report(ctx: click.Context, jsonl_path: str, out_dir: str, no_plots: bool) ->
     agg = aggregate(rows)
     agg.to_csv(out / "trials_aggregated.csv", index=False)
 
+    breakeven_rows = build_breakeven_rows(records)
     generated = []
     if not no_plots:
         from iobench.results.plots import generate_all_plots
 
-        generated = generate_all_plots(agg, str(out))
+        generated = generate_all_plots(agg, str(out), breakeven_rows=breakeven_rows)
+    elif breakeven_rows:
+        from iobench.results.plots import write_breakeven_table
 
-    click.echo(f"raw={len(rows)}行, aggregated={len(agg)}グループ -> {out}")
+        table = write_breakeven_table(breakeven_rows, out)
+        if table is not None:
+            generated = [table]
+
+    click.echo(
+        f"raw={len(rows)}行, aggregated={len(agg)}グループ, breakeven={len(breakeven_rows)}行 -> {out}"
+    )
     for p in generated:
         click.echo(f"[plot] {p}")
 
