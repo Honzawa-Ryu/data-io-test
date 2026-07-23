@@ -64,7 +64,14 @@ def build_breakeven_rows(records: list[TrialRecord]) -> list[dict]:
             and c.staging_src is not None
             and c.staging_dst is not None
         ):
-            key = (r.probe.node_class, c.format, c.staging_tool, c.staging_src, c.staging_dst)
+            key = (
+                r.probe.node_class,
+                c.format,
+                r.cache_state,
+                c.staging_tool,
+                c.staging_src,
+                c.staging_dst,
+            )
             stage_groups[key].append(r.metrics.t_stage_seconds)
 
     # (node_class, format, workers, shuffle, decode, cache_state) -> {storage: [epoch_seconds]}
@@ -76,10 +83,12 @@ def build_breakeven_rows(records: list[TrialRecord]) -> list[dict]:
             epoch_groups[key][c.storage_logical].append(r.metrics.epoch_seconds)
 
     rows: list[dict] = []
-    for (node_class, fmt, tool, src, dst), stages in sorted(stage_groups.items()):
+    for (node_class, fmt, stage_cache_state, tool, src, dst), stages in sorted(stage_groups.items()):
         t_stage = median(stages)
-        for (nc, f, workers, shuffle, decode, cache_state), by_storage in sorted(epoch_groups.items()):
-            if (nc, f) != (node_class, fmt) or src not in by_storage or dst not in by_storage:
+        for (nc, f, workers, shuffle, decode, loader_cache_state), by_storage in sorted(epoch_groups.items()):
+            if (nc, f) != (node_class, fmt) or loader_cache_state != stage_cache_state:
+                continue
+            if src not in by_storage or dst not in by_storage:
                 continue
             be = compute_breakeven(t_stage, median(by_storage[src]), median(by_storage[dst]))
             rows.append(
