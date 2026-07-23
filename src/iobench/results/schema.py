@@ -11,7 +11,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-NodeClass = Literal["X", "Y", "Z"]
 StorageLogical = Literal["nfs", "hdd", "ssd_scratch", "tmpfs", "unified"]
 FormatName = Literal["raw", "webdataset", "hdf5", "zarr_v3", "zarr_v2"]
 ShuffleMode = Literal["none", "shard", "full"]
@@ -30,7 +29,7 @@ class MountInfo(BaseModel):
 
 class ProbeResult(BaseModel):
     hostname: str
-    node_class: NodeClass
+    node_class: str
     slurm_job_id: str | None = None
     slurm_partition: str | None = None
     slurm_tmpdir: str | None = None
