@@ -8,10 +8,15 @@ Slurmクラスタで **ジョブを投げて実行する** 前提の手順書。
 ```
 1. クローン & 環境構築(コンテナ or venv)
 2. このマシン用に configs/nodes.yaml を用意(または --node-class で明示)
-3. sbatch でジョブ投入: probe → storage → datagen → loader → staging
-4. iobench report で集計・グラフ化
+3. sbatch でジョブ投入: probe → storage → datagen(遅い側に生成)
+   → staging(計測がてら速い側へ配置) → loader
+4. iobench report で集計・グラフ化・損益分岐表
 5. iobench clean で後始末
 ```
+
+datagen を遅い側(HDD/NFS)に行い、staging の転送計測がそのまま loader 用の
+SSD側コピー作成を兼ねる、という順序にすることで、1回のデータ準備で
+「フォーマット別の転送速度」「両ストレージのloader比較」「損益分岐E」が全部揃う。
 
 すべてのサブコマンドは汎用ラッパ [`scripts/run_iobench.sh`](../scripts/run_iobench.sh) で Slurm ジョブとして投げられる。ラッパは実行のたびに `results/<timestamp>_<jobid>/` に **git commit・diff・実行コマンド** を保存し、実験回を追跡できるようにする。
 
@@ -69,25 +74,65 @@ sbatch -p x-large-andre01 scripts/run_iobench.sh storage \
 # NFS向け小ファイル: --preset nfs_smallfile_stat_read
 ```
 
-### 合成データ生成(datagen)
+### 合成データ生成(datagen)— 遅い側(HDD/NFS)に作る
 
 同一内容を4フォーマットで生成できる。`--out` はストレージ上の実パス。
+**フォーマットごとに別ディレクトリ**に生成する(datagenは出力先を毎回作り直すため、
+同じ `--out` を使い回すと前のフォーマットの出力が消える)。
+後段の staging で速い側(SSD)へ運ぶので、**まず遅い側に生成する**。
 
 ```bash
-# WebDataset 512MBシャード, 10万枚, 224x224(WSI-AD想定)
+# 生ファイル 10万枚 224x224(WSI-AD想定)
 sbatch -p x-large-andre01 scripts/run_iobench.sh datagen \
-    --format webdataset --out /scratch/honzawa/ds_wds \
+    --format raw --out /workspace/andre01/honzawa/ds_raw \
+    --num-images 100000 --height 224 --width 224 --files-per-dir 10000
+
+# WebDataset 512MBシャード
+sbatch -p x-large-andre01 scripts/run_iobench.sh datagen \
+    --format webdataset --out /workspace/andre01/honzawa/ds_wds \
     --num-images 100000 --height 224 --width 224 --shard-size 536870912
 
-# 生ファイル / HDF5 / Zarr(v3+v2参考を同時生成)
-#   --format raw    --files-per-dir 10000
-#   --format hdf5   --chunk-size 1048576
-#   --format zarr   --chunk-size 1048576
+# HDF5 / Zarr(v3+v2参考を同時生成)
+#   --format hdf5   --out .../ds.h5    --chunk-size 1048576
+#   --format zarr   --out .../ds_zarr  --chunk-size 1048576
 ```
+
+### ステージング計測(staging)— 計測がてらSSDへ配置する
+
+遅い側→速い側の転送時間(T_stage)を計測しながら、loader計測用のSSD側コピーを作る。
+**フォーマット(レイアウト)ごとに実施する** — 小ファイル大量(raw)とtar数本(webdataset)では
+転送速度がまったく違うため、これ自体がレイアウト間の転送速度比較になる。
+結果は TrialRecord として `results/trials_staging.jsonl` に追記され、
+`iobench report` が loader 結果と突合して損益分岐E(breakeven_table.csv)を算出する。
+
+```bash
+# 投入直前に手動 drop_caches(cold化。下記「cold/warm 計測についての注意」参照)してから:
+sbatch -p x-large-andre01 scripts/run_iobench.sh staging --tool rsync \
+    --src /workspace/andre01/honzawa/ds_raw --dst /scratch/honzawa/ds_raw \
+    --format raw --cache-state cold
+
+# フォーマットごとに drop → 投入を繰り返す
+sbatch -p x-large-andre01 scripts/run_iobench.sh staging --tool rsync \
+    --src /workspace/andre01/honzawa/ds_wds --dst /scratch/honzawa/ds_wds \
+    --format webdataset --cache-state cold
+
+# 転送ツール比較は --tool cp / tar / parallel_rsync(毎回 dst削除+drop してから)
+```
+
+- `--format` は report で loader 結果と突合する結合キー(転送するデータのレイアウトを指定)。
+- `--cache-state cold` は「外部でdrop済み」の自己申告(loaderの`external`戦略と同じ信頼モデル)。
+  drop せずに測った場合は既定の warm のまま記録する。cold と warm は別jsonlに分けること。
+- src/dst の論理ストレージ名(hdd/ssd_scratch等)は nodes.yaml の resolved_paths から
+  自動解決される。解決できないパスは `--src-logical`/`--dst-logical` で明示する。
+- 転送スループットはデータサイズにほぼ比例するので、マシン×レイアウトごとに1〜3回で足りる
+  (loaderのような条件掃引は不要)。
 
 ### DataLoader スループット(loader)— 本命
 
-実験マトリクスは YAML で宣言する([experiment.example.yaml](../configs/experiment.example.yaml) 参照)。`--dataset-root` は各ストレージ論理パス配下の相対パス。
+staging で両ストレージにデータが揃った状態で回す。実験マトリクスは YAML で宣言する
+([experiment.example.yaml](../configs/experiment.example.yaml) 参照)。
+`--dataset-root` は各ストレージ論理パス配下の**相対パス**(例: `ds_wds`)。
+絶対パスを渡すと storage 軸が実質無効になる(全条件が同じ実パスを読む)ので渡さないこと。
 
 ```bash
 sbatch -p x-large-andre01 scripts/run_iobench.sh loader \
@@ -95,19 +140,17 @@ sbatch -p x-large-andre01 scripts/run_iobench.sh loader \
 # 12/18/... 試行が results/trials.jsonl に追記される(反復・cache_state・sidecar付き)
 ```
 
-`experiment.yaml` の `matrix` で format × storage × num_workers × shuffle_mode × decode を直積展開し、各条件を `repetitions` 回実行する。
+`experiment.yaml` の `matrix` で format × storage × num_workers × shuffle_mode × decode を直積展開し、各条件を `repetitions` 回実行する。matrix の format はすべて同じ base ディレクトリ
+(`ストレージ論理パス/dataset-root`)から読むため、フォーマットごとに `--out` を分けた場合は
+**formatごとに config と `--dataset-root` を分けて別ジョブで回す**。
 
-### ステージング(staging)と運用パターン A/B/C
+### 運用パターン A/B/C(slurm template)
 
 ```bash
-# 転送計測(T_stage)
-sbatch scripts/run_iobench.sh staging --tool rsync \
-    --src /workspace/andre01/honzawa/ds --dst /scratch/honzawa/ds
-
 # パターンA/B/C の sbatch スクリプトを生成(投入前に中身を確認)
 sbatch scripts/run_iobench.sh slurm template --pattern C \
-    --src /workspace/andre01/honzawa/ds --exp-yaml configs/experiment.yaml \
-    --dataset-root ds --cache-root /scratch/cache
+    --src /workspace/andre01/honzawa/ds_wds --exp-yaml configs/experiment.yaml \
+    --dataset-root ds_wds --cache-root /scratch/cache
 # 生成物: results/slurm_templates/stageC.sh, lru_evict.sh
 ```
 
@@ -115,10 +158,26 @@ sbatch scripts/run_iobench.sh slurm template --pattern C \
 
 ## 4. 集計・グラフ化(report)
 
+`--jsonl` は複数指定でき、loader系とstaging系の結果をまとめて集計・突合する:
+
 ```bash
-iobench report --jsonl results/trials.jsonl --out results/report
-# trials_raw.csv, trials_aggregated.csv(中央値/min/max), *.png(スループット比較・シャードサイズ掃引)
+iobench report \
+    --jsonl results/trials.jsonl \
+    --jsonl results/trials_staging.jsonl \
+    --out results/report
 ```
+
+出力:
+
+- `trials_raw.csv` / `trials_aggregated.csv` — 全試行と条件別集計(中央値/min/max)
+- `throughput_comparison.png` / `shardsize_sweep.png` — スループット比較・シャードサイズ掃引
+- `breakeven_table.csv` — **損益分岐表**。staging の T_stage と loader の epoch_seconds を
+  (node_class × format)で突合し、「Eエポック以上回すならステージングが得」のEを条件ごとに出す。
+  同一 node_class × format で、staging_src と staging_dst 両ストレージの loader 計測が
+  揃っている場合のみ行が生成される。
+
+cold/warm が混在した比較は report がエラーで止めるため、loader と同様 staging も
+cold と warm は別jsonlに分けて、比較したい組だけを `--jsonl` で渡す。
 
 多重負荷の劣化率は、単独実行と同時実行の結果JSONLを突合する(**多重負荷試験の実施は事前に運用者へ確認すること**):
 

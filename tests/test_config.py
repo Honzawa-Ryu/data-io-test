@@ -10,11 +10,11 @@ CONFIGS_DIR = Path(__file__).resolve().parents[1] / "configs"
 def test_nodes_example_parses():
     data = yaml.safe_load((CONFIGS_DIR / "nodes.example.yaml").read_text())
     cfg = NodesConfig.model_validate(data)
-    assert set(cfg.node_classes) == {"X", "Y", "Z"}
-    # Xは hostname_pattern で識別、nfs論理パスを持つ
-    assert cfg.node_classes["X"].match.hostname_pattern == "*creator*"
-    assert "nfs" in cfg.node_classes["X"].paths
-    assert cfg.node_classes["Z"].unified_memory is True
+    assert set(cfg.node_classes) == {"creator", "andre01", "grace02"}
+    # 各クラスは hostname_pattern で識別され、論理パスを持つ
+    assert cfg.node_classes["creator"].hostname_pattern == "*creator*"
+    assert "nfs" in cfg.node_classes["creator"].paths
+    assert cfg.node_classes["grace02"].unified_memory is True
 
 
 def test_experiment_example_parses():

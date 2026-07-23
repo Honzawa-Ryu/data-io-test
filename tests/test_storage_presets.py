@@ -49,6 +49,7 @@ def test_build_fio_command_has_expected_args():
     assert "--bs=128k" in cmd
     assert "--iodepth=32" in cmd
     assert "--numjobs=8" in cmd
+    assert "--ioengine=libaio" in cmd
     assert "--direct=1" in cmd
     assert "--runtime=15" in cmd
     assert "--size=2G" in cmd

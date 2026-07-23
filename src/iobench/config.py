@@ -20,15 +20,14 @@ class NodeClassMatch(BaseModel):
 
 
 class NodeClassConfig(BaseModel):
-    match: NodeClassMatch
+    hostname_pattern: str | None = None
     paths: dict[str, str | None] = {}
     unified_memory: bool = False
 
 
 class NodesConfig(BaseModel):
     """configs/nodes.yaml のトップレベルスキーマ。"""
-
-    node_classes: dict[Literal["X", "Y", "Z"], NodeClassConfig]
+    node_classes: dict[str, NodeClassConfig]
 
 
 class CachePolicy(BaseModel):

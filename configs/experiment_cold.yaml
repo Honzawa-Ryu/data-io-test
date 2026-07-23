@@ -1,0 +1,26 @@
+# cold計測用(andre01)。投入直前に運用者が手動で sudo drop_caches する運用
+# (docs/howto.md「運用: ジョブ投入直前に手動で drop_caches する」参照)。
+# external戦略では repetitions: 1 必須。cold試行をN回取るなら
+# 「手動drop → このYAMLで1ジョブ投入」をN回繰り返す。
+
+purpose: dev                     # 本計測にするときは campaign
+repetitions: 1                   # external では 1 固定(>1 だと2回目以降が実質warm)
+
+cache_policy:
+  mode: cold
+  drop_caches_strategy: external # ライブラリはdropせず、外部で落とされた前提でcold記録
+
+matrix:
+  format: [raw, webdataset]
+  storage: [hdd, ssd_scratch]    # andre01のnodes.yamlにある論理名のみ
+  num_workers: [0, 8]
+  shuffle_mode: [shard, full]
+  decode: [true]
+
+dataset:
+  ref: synth_dev_v1
+  shard_size_bytes: 536870912    # 512MB
+
+output:
+  jsonl: results/trials_cold.jsonl  # warm系と分ける(同一条件のcold/warm混在はreportが停止するため)
+  purpose_tag: dev

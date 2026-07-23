@@ -102,6 +102,9 @@ class Condition(BaseModel):
     num_workers: int
     shuffle_mode: Literal["none", "shard", "full"]
     decode: bool
+    staging_tool: str | None         # staging試行のみ: cp/rsync/tar/parallel_rsync
+    staging_src: str | None          # staging試行のみ: 転送元の論理ストレージ名
+    staging_dst: str | None          # staging試行のみ: 転送先の論理ストレージ名(=storage_logical)
 
 class Metrics(BaseModel):
     throughput_samples_s: float | None
@@ -111,6 +114,8 @@ class Metrics(BaseModel):
     first_batch_latency_s: float | None
     degradation_ratio: float | None
     meta_ops_s: float | None
+    epoch_seconds: float | None      # loader: 1エポック読み切りの実時間(breakevenの分母)
+    staged_bytes: int | None         # staging: 転送総バイト(他データサイズへの外挿用)
 
 class TrialRecord(BaseModel):
     trial_id: str            # uuid4

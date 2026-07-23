@@ -120,6 +120,7 @@ def run_experiment(
                     throughput_mb_s=result.throughput_mb_s,
                     gpu_idle_ratio=result.gpu_idle_ratio,
                     first_batch_latency_s=result.first_batch_latency_s,
+                    epoch_seconds=result.elapsed_seconds,
                 ),
                 cache_state=cache_state,
                 repetition_index=rep,

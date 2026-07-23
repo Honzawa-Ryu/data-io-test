@@ -1,35 +1,31 @@
-# configs/nodes.yaml のサンプル。
-# TODO: ノード名/パーティション名/constraint、実マウントパス、空き容量は
-#       クラスタ管理者への確認結果で置き換えること(goal.md 1節のチェックリスト)。
+# configs/nodes.yaml のサンプル。使うマシンごとにコピーして編集する:
+#   cp configs/nodes.example.yaml configs/nodes.yaml
+# TODO: 実マウントパス、空き容量はクラスタ管理者への確認結果で置き換えること
+#       (goal.md 1節のチェックリスト)。
 # 各パスは probe モジュールが論理名(nfs/hdd/ssd_scratch/tmpfs/unified)経由で解決する。
 #
-# 【分類の仕組み】match に書いた「空でない条件すべて」が一致したときだけその構成になる(AND)。
-#   - hostname_pattern は glob(例: "*andre01*" は "andre01" も "x-andre01" もマッチ)。
-#   - このクラスタは X/Y/Z がパーティションを共有しているため、partition では区別できない。
-#     区別は hostname_pattern が担う。partition を書くと Slurmジョブ外(partition未設定)では
-#     一致せず分類できなくなるので、識別に使わないなら書かない(空にする)のが安全。
-#   - 0構成一致 or 2構成以上一致(曖昧)なら probe はエラーで停止する(黙って計測しない)。
+# 【分類の仕組み】hostname_pattern の glob がホスト名に一致したクラスに分類される。
+#   - 例: "*andre01*" は "andre01" にも "x-andre01" にもマッチ。
+#   - クラス名は自由な文字列(マシン名でも、構成X/Y/Zのような役割名でもよい)。
+#   - 0クラス一致 or 2クラス以上一致(曖昧)なら probe はエラーで停止する(黙って計測しない)。
+#     hostname_pattern で識別できないマシンでは IOBENCH_NODE_CLASS=<クラス名> で明示指定できる。
 
 node_classes:
-  X:  # NFS + SSD scratch 構成
-    match:
-      hostname_pattern: "*creator*"
+  creator:  # 構成X: NFS + SSD scratch
+    hostname_pattern: "*creator*"
     paths:
       nfs: /workspace/creator/honzawa   # TODO: 実パス確定待ち
       ssd_scratch: /scratch/honzawa     # TODO: 実パス確定待ち
       tmpfs: null                       # $SLURM_TMPDIR があれば probe が自動で tmpfs 追加
 
-  Y:  # HDD + SSD scratch 構成
-    match:
-      hostname_pattern: "*andre01*"
+  andre01:  # 構成Y: HDD + SSD scratch
+    hostname_pattern: "*andre01*"
     paths:
       hdd: /workspace/andre01/honzawa   # TODO: 実パス確定待ち
       ssd_scratch: /scratch/honzawa     # TODO: 実パス確定待ち
 
-  Z:  # GB10 ユニファイドメモリ構成
-    match:
-      hostname_pattern: "*grace02*"
-      constraint: ["gb10"]              # Zはconstraintでも裏付け(hostnameとAND)
+  grace02:  # 構成Z: GB10 ユニファイドメモリ
+    hostname_pattern: "*grace02*"
     paths:
       unified: /workspace/grace02/honzawa  # TODO: 実パス確定待ち
     unified_memory: true

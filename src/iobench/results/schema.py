@@ -11,7 +11,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-NodeClass = Literal["X", "Y", "Z"]
 StorageLogical = Literal["nfs", "hdd", "ssd_scratch", "tmpfs", "unified"]
 FormatName = Literal["raw", "webdataset", "hdf5", "zarr_v3", "zarr_v2"]
 ShuffleMode = Literal["none", "shard", "full"]
@@ -30,7 +29,7 @@ class MountInfo(BaseModel):
 
 class ProbeResult(BaseModel):
     hostname: str
-    node_class: NodeClass
+    node_class: str
     slurm_job_id: str | None = None
     slurm_partition: str | None = None
     slurm_tmpdir: str | None = None
@@ -50,6 +49,10 @@ class Condition(BaseModel):
     num_workers: int
     shuffle_mode: ShuffleMode
     decode: bool
+    # staging試行のみ使用(storage_logicalには転送先を入れる)
+    staging_tool: str | None = None
+    staging_src: StorageLogical | None = None
+    staging_dst: StorageLogical | None = None
 
 
 class Metrics(BaseModel):
@@ -60,6 +63,8 @@ class Metrics(BaseModel):
     first_batch_latency_s: float | None = None
     degradation_ratio: float | None = None
     meta_ops_s: float | None = None
+    epoch_seconds: float | None = None  # loader: 1エポック読み切りの実時間(breakevenの分母)
+    staged_bytes: int | None = None  # staging: 転送総バイト(他データサイズへの外挿用)
 
 
 class TrialRecord(BaseModel):

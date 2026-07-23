@@ -34,15 +34,13 @@ def test_trial_record_round_trip():
     assert restored.probe.node_class == "X"
 
 
-def test_invalid_node_class_rejected():
-    import pytest
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError):
-        ProbeResult(
-            hostname="node01",
-            node_class="W",  # X/Y/Z以外は不正
-            cpu_cores=8,
-            ram_gb=64.0,
-            gpu_present=False,
-        )
+def test_node_class_is_free_form():
+    # per-machineデプロイ方針によりクラス名は自由文字列(X/Y/Z限定は撤廃)
+    probe = ProbeResult(
+        hostname="node01",
+        node_class="andre01",
+        cpu_cores=8,
+        ram_gb=64.0,
+        gpu_present=False,
+    )
+    assert probe.node_class == "andre01"

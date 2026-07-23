@@ -1,0 +1,31 @@
+# configs/experiment.example.yaml をこのノード(構成Y)・今回生成したデータセットに合わせて作成。
+# 元のサンプルから変更した点(理由をここに記録):
+#   - matrix.storage を ssd_scratch のみに限定: このノード(Y)の nodes.yaml には nfs パスが無く
+#     (存在しない論理名を指定すると実行時エラーになる、docs/config_schema.md参照)、かつ
+#     howto記載のdatagenコマンドは /scratch/honzawa/ds_wds(=ssd_scratch)にのみデータを生成しており
+#     hdd側には同データが無いため。
+#   - matrix.format を webdataset のみに限定: howto記載のdatagenコマンドで実際に生成したのは
+#     webdataset のみ(raw/hdf5/zarrは今回生成していない)ため。
+# それ以外(repetitions/cache_policy/num_workers/shuffle_mode/decode等)はサンプルのまま。
+
+purpose: dev
+repetitions: 3
+
+cache_policy:
+  mode: cold                     # cold | warm | auto
+  drop_caches_strategy: sudo_tee # 既定実装。運用が固まれば差し替え可能
+
+matrix:
+  format: [webdataset]
+  storage: [ssd_scratch]
+  num_workers: [0, 8]
+  shuffle_mode: [shard, full]
+  decode: [true]
+
+dataset:
+  ref: synth_dev_v1
+  shard_size_bytes: 536870912   # 512MB
+
+output:
+  jsonl: results/trials.jsonl
+  purpose_tag: dev

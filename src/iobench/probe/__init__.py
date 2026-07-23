@@ -37,7 +37,7 @@ def run_probe(nodes_config: NodesConfig, force_node_class: str | None = None) ->
         node_class = override
     else:
         node_class = classify_node(
-            nodes_config, hostname, slurm["partition"], slurm["constraint"] or ""
+            nodes_config, hostname
         )
     cls_cfg = nodes_config.node_classes[node_class]
 
