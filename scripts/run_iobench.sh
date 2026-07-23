@@ -46,8 +46,6 @@ ln -snf "$(realpath "$OUT_DIR")" results/latest
 if [ -f "$CONTAINER_IMAGE" ]; then
     apptainer exec --nv "$CONTAINER_IMAGE" bash -c \
         "uv run iobench --nodes-config '$NODES_CONFIG' $*"
-elif [ -d .venv ]; then
-    .venv/bin/iobench --nodes-config "$NODES_CONFIG" "$@"
-else
-    PYTHONPATH=src python -m iobench.cli --nodes-config "$NODES_CONFIG" "$@"
+else;
+    echo "No container image found at $CONTAINER_IMAGE."
 fi
