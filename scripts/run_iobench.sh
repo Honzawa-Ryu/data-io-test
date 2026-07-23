@@ -44,8 +44,9 @@ ln -snf "$(realpath "$OUT_DIR")" results/latest
 
 # コンテナ優先
 if [ -f "$CONTAINER_IMAGE" ]; then
-    apptainer exec --nv "$CONTAINER_IMAGE" bash -c \
+    apptainer exec --bind /scratch:/scratch --nv "$CONTAINER_IMAGE" bash -c \
         "uv run iobench --nodes-config '$NODES_CONFIG' $*"
 else
     echo "No container image found at $CONTAINER_IMAGE."
 fi
+

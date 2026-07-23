@@ -25,6 +25,9 @@ def build_fio_command(preset: FioPreset, target_dir: str, runtime_sec: int = 10,
         f"--bs={preset['bs']}",
         f"--iodepth={preset['iodepth']}",
         f"--numjobs={preset['numjobs']}",
+        # デフォルトのpsync(同期エンジン)はiodepth>1に対応せず、fioが警告をstdoutの
+        # JSONより前に出力してパースが壊れるため、非同期エンジンを明示する。
+        "--ioengine=libaio",
         "--direct=1",
         f"--runtime={runtime_sec}",
         "--time_based",
