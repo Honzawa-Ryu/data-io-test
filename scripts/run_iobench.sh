@@ -42,10 +42,10 @@ git rev-parse HEAD > "$OUT_DIR/git_commit.txt" 2>/dev/null || echo "no-git" > "$
 git diff > "$OUT_DIR/git_diff.patch" 2>/dev/null || true
 ln -snf "$(realpath "$OUT_DIR")" results/latest
 
-# コンテナ優先、無ければ .venv、無ければ src 直実行
+# コンテナ優先
 if [ -f "$CONTAINER_IMAGE" ]; then
     apptainer exec --nv "$CONTAINER_IMAGE" bash -c \
         "uv run iobench --nodes-config '$NODES_CONFIG' $*"
-else;
+else
     echo "No container image found at $CONTAINER_IMAGE."
 fi
