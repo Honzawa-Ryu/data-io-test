@@ -1,7 +1,8 @@
 #!/bin/bash
-#SBATCH --partition=interactive
+#SBATCH --partition=small-andre01
 #SBATCH --time=01:00:00
 #SBATCH --output=build_%J.log
+#SBATCH --mem=4G
 
 rm -f env.sif
 
