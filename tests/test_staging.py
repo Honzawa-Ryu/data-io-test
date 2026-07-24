@@ -32,6 +32,50 @@ def test_transfer_tar_pipe(tmp_path):
     assert len(list(dst.rglob("*.bin"))) == 5
 
 
+def test_transfer_rsync_single_file(tmp_path):
+    src = tmp_path / "ds.h5"
+    src.write_bytes(np.random.bytes(2048))
+    dst = tmp_path / "out" / "ds.h5"
+    result = run_transfer("rsync", str(src), str(dst))
+    assert dst.read_bytes() == src.read_bytes()
+    assert result.total_bytes == 2048
+
+
+def test_transfer_cp_single_file(tmp_path):
+    src = tmp_path / "ds.h5"
+    src.write_bytes(np.random.bytes(1024))
+    dst = tmp_path / "out" / "ds.h5"
+    run_transfer("cp", str(src), str(dst))
+    assert dst.read_bytes() == src.read_bytes()
+
+
+def test_transfer_cp_dir_copies_contents_not_nested(tmp_path):
+    src = tmp_path / "src"
+    _make_tree(src, n_files=3)
+    dst = tmp_path / "dst"
+    run_transfer("cp", str(src), str(dst))
+    assert len(list(dst.glob("*.bin"))) == 3  # dst直下(src名で入れ子にならない)
+
+
+def test_transfer_tar_rejects_single_file(tmp_path):
+    src = tmp_path / "ds.h5"
+    src.write_bytes(b"x" * 128)
+    with pytest.raises(ValueError, match="ディレクトリ転送専用"):
+        run_transfer("tar", str(src), str(tmp_path / "out"))
+
+
+def test_run_transfer_missing_src_raises(tmp_path):
+    with pytest.raises(FileNotFoundError, match="転送元が存在しません"):
+        run_transfer("rsync", str(tmp_path / "no_such_dir"), str(tmp_path / "dst"))
+
+
+def test_run_surfaces_stderr_on_failure():
+    from iobench.staging.transfer import _run
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _run(["bash", "-c", "echo boom >&2; exit 3"])
+
+
 def test_breakeven_positive_saving():
     # T_stage=100s, direct=50s/ep, ssd=30s/ep -> saving=20s/ep -> E=ceil(100/20)=5
     r = compute_breakeven(100.0, 50.0, 30.0)

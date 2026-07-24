@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --partition=interactive
+#SBATCH --partition=small-andre01
 #SBATCH --output=setup_%j.log
 
 CONTAINER_IMAGE="env.sif"

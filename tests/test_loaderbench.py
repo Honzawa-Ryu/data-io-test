@@ -68,3 +68,16 @@ def test_webdataset_full_is_rejected(tmp_path):
         run_loader_epoch(
             "webdataset", str(tmp_path / "wds"), decode=True, shuffle_mode="full", num_workers=0, batch_size=4
         )
+
+
+def test_raw_empty_dataset_raises(tmp_path):
+    # format と --dataset-root の組み違い(例: rawでwdsディレクトリを指す)を黙って0件記録しない
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(FileNotFoundError, match="raw データセットが空"):
+        run_loader_epoch("raw", str(tmp_path / "empty"), decode=False, num_workers=0)
+
+
+def test_webdataset_empty_dataset_raises(tmp_path):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(FileNotFoundError, match="webdataset データセットが空"):
+        run_loader_epoch("webdataset", str(tmp_path / "empty"), decode=False, num_workers=0)

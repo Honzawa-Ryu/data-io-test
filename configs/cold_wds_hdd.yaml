@@ -1,0 +1,22 @@
+# cold計測 1セル(webdataset x hdd)。投入直前に手動drop必須(docs/howto.md)。
+purpose: campaign
+repetitions: 1                    # external では1固定
+
+cache_policy:
+  mode: cold
+  drop_caches_strategy: external
+
+matrix:
+  format: [webdataset]
+  storage: [hdd]
+  num_workers: [8]
+  shuffle_mode: [shard]
+  decode: [true]
+
+dataset:
+  ref: synth_100k_224_v1
+  shard_size_bytes: 536870912   # 512MB
+
+output:
+  jsonl: results/trials_cold.jsonl
+  purpose_tag: campaign

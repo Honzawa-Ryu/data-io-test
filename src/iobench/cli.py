@@ -58,19 +58,39 @@ def probe(ctx: click.Context, node_class: str | None) -> None:
 
 
 @main.command()
-@click.option("--target", required=True, help="計測対象のパス")
+@click.option("--target", default=None, help="計測対象のパス(--list-presets時は不要)")
 @click.option("--preset", default=None, help="fioプリセット名(iobench storage --list-presetsで一覧表示)")
 @click.option("--list-presets", is_flag=True, default=False, help="利用可能なプリセット一覧を表示して終了")
 @click.option("--runtime", default=10, show_default=True, type=int, help="fio実行時間(秒)")
+@click.option(
+    "--jsonl",
+    "jsonl_path",
+    default="results/trials_storage.jsonl",
+    show_default=True,
+    help="結果を追記するJSON Linesパス",
+)
+@click.option("--purpose", type=click.Choice(["dev", "campaign"]), default="dev", show_default=True)
+@click.option("--node-class", "node_class", default=None, help="構成を明示指定し自動分類をスキップ")
 @click.pass_context
 def storage(
     ctx: click.Context,
-    target: str,
+    target: str | None,
     preset: str | None,
     list_presets: bool,
     runtime: int,
+    jsonl_path: str,
+    purpose: str,
+    node_class: str | None,
 ) -> None:
-    """fioプリセット(またはNFS小ファイルベンチ)を実行しストレージ素性を計測する。"""
+    """fioプリセット(またはNFS小ファイルベンチ)を実行しストレージ素性を計測・記録する。"""
+    import uuid
+    from datetime import datetime, timezone
+
+    from iobench.gitinfo import get_git_hash
+    from iobench.probe import ProbeClassificationError, run_probe
+    from iobench.results.schema import StorageTrialRecord
+    from iobench.results.writer import append_record
+    from iobench.staging import resolve_storage_logical
     from iobench.storage import (
         NFS_SMALLFILE_PRESET,
         FioNotFoundError,
@@ -87,8 +107,16 @@ def storage(
         click.echo(NFS_SMALLFILE_PRESET["name"])
         return
 
+    if target is None:
+        raise click.UsageError("--target を指定してください")
     if preset is None:
         raise click.UsageError("--preset を指定してください(--list-presets で一覧表示)")
+
+    nodes_config = _load_nodes_config(ctx.obj["nodes_config"])
+    try:
+        probe_result = run_probe(nodes_config, force_node_class=node_class)
+    except ProbeClassificationError as e:
+        raise click.ClickException(str(e)) from e
 
     if preset == NFS_SMALLFILE_PRESET["name"]:
         metrics = run_smallfile_benchmark(
@@ -105,6 +133,21 @@ def storage(
         metrics = parse_fio_result(raw)
 
     click.echo(metrics)
+
+    record = StorageTrialRecord(
+        trial_id=str(uuid.uuid4()),
+        timestamp=datetime.now(timezone.utc),
+        probe=probe_result,
+        target=target,
+        target_logical=resolve_storage_logical(target, probe_result.resolved_paths),
+        preset=preset,
+        runtime_sec=runtime,
+        metrics={k: float(v) for k, v in metrics.items()},
+        purpose=purpose,
+        library_version=get_git_hash(),
+    )
+    append_record(record, jsonl_path)
+    click.echo(f"1試行を記録しました -> {jsonl_path}")
 
 
 @main.command()
@@ -254,7 +297,10 @@ def staging(
     except ProbeClassificationError as e:
         raise click.ClickException(str(e)) from e
 
-    result = run_transfer(tool, src, dst, bwlimit=bwlimit)
+    try:
+        result = run_transfer(tool, src, dst, bwlimit=bwlimit)
+    except (FileNotFoundError, RuntimeError, ValueError) as e:
+        raise click.ClickException(str(e)) from e
     click.echo(
         f"tool={result.tool} bytes={result.total_bytes} "
         f"T_stage={result.elapsed_seconds:.3f}s throughput={result.throughput_mb_s:.2f}MB/s"
@@ -385,22 +431,53 @@ def slurm_submit(script_path: str, dependency: str | None, node: str | None) -> 
     multiple=True,
     help="結果JSON Linesのパス(複数指定可: loader系とstaging系をまとめて突合する)",
 )
+@click.option(
+    "--storage-jsonl",
+    "storage_jsonl_paths",
+    multiple=True,
+    help="storage(fio)結果のJSON Linesパス(複数指定可、summaryの表に載る)",
+)
 @click.option("--out", "out_dir", required=True, help="集計出力先ディレクトリ")
 @click.option("--no-plots", is_flag=True, default=False, help="グラフ生成をスキップしCSVのみ出力")
+@click.option(
+    "--allow-mixed-cache",
+    is_flag=True,
+    default=False,
+    help="cold/warm混在チェックをスキップ(全計測を1つのsummaryにまとめる場合。"
+    "表・集計はcache_stateで常に分離される)",
+)
 @click.pass_context
-def report(ctx: click.Context, jsonl_paths: tuple[str, ...], out_dir: str, no_plots: bool) -> None:
-    """結果JSONL/CSVから集計表(中央値/min/max)・グラフ・損益分岐表を生成する。
+def report(
+    ctx: click.Context,
+    jsonl_paths: tuple[str, ...],
+    storage_jsonl_paths: tuple[str, ...],
+    out_dir: str,
+    no_plots: bool,
+    allow_mixed_cache: bool,
+) -> None:
+    """結果JSONLからパイプライン全体のまとめを生成する。
 
-    グラフ: スループット比較、シャード/チャンクサイズ掃引カーブ、(データがあれば)多重負荷劣化。
-    staging試行とloader試行が両方あれば breakeven_table.csv(損益分岐エポック数E)も出力する。
+    出力: trials_raw.csv / trials_aggregated.csv / staging_table.csv / loader_table.csv /
+    storage_table.csv / breakeven_table.csv / summary.md(全表の単一まとめ)+ 各種グラフ。
     """
     from iobench.results import aggregate, check_cache_state_consistency, load_records, to_rows
     from iobench.results.report import build_breakeven_rows
+    from iobench.results.summary import (
+        loader_table,
+        render_summary_md,
+        staging_table,
+        storage_table,
+    )
+    from iobench.results.writer import load_storage_records
 
     records = []
     for p in jsonl_paths:
         records.extend(load_records(p))
-    check_cache_state_consistency(records)
+    if not allow_mixed_cache:
+        check_cache_state_consistency(records)
+    storage_records = []
+    for p in storage_jsonl_paths:
+        storage_records.extend(load_storage_records(p))
     rows = to_rows(records)
 
     out = Path(out_dir)
@@ -413,17 +490,42 @@ def report(ctx: click.Context, jsonl_paths: tuple[str, ...], out_dir: str, no_pl
     agg.to_csv(out / "trials_aggregated.csv", index=False)
 
     breakeven_rows = build_breakeven_rows(records)
-    generated = []
+    stg_df = staging_table(records)
+    ldr_df = loader_table(records)
+    sto_df = storage_table(storage_records)
+    be_df = pd.DataFrame(breakeven_rows)
+    for name, df in (
+        ("staging_table.csv", stg_df),
+        ("loader_table.csv", ldr_df),
+        ("storage_table.csv", sto_df),
+    ):
+        if not df.empty:
+            df.to_csv(out / name, index=False)
+
+    node_label = ", ".join(sorted({r.probe.node_class for r in records})) or "unknown"
+    (out / "summary.md").write_text(
+        render_summary_md(
+            node_label=node_label,
+            storage_df=sto_df,
+            staging_df=stg_df,
+            loader_df=ldr_df,
+            breakeven_df=be_df,
+        )
+    )
+
+    generated = [str(out / "summary.md")]
     if not no_plots:
         from iobench.results.plots import generate_all_plots
 
-        generated = generate_all_plots(agg, str(out), breakeven_rows=breakeven_rows)
+        generated += generate_all_plots(
+            agg, str(out), breakeven_rows=breakeven_rows, staging_df=stg_df, loader_df=ldr_df
+        )
     elif breakeven_rows:
         from iobench.results.plots import write_breakeven_table
 
         table = write_breakeven_table(breakeven_rows, out)
         if table is not None:
-            generated = [table]
+            generated.append(table)
 
     click.echo(
         f"raw={len(rows)}行, aggregated={len(agg)}グループ, breakeven={len(breakeven_rows)}行 -> {out}"

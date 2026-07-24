@@ -1,0 +1,23 @@
+# warm計測(hdf5)。フォーマットごとにdataset rootが違うため1フォーマット=1config。
+# 投入: sbatch -p x-large-andre01 --mem=16G -t 04:00:00 scripts/run_iobench.sh loader \
+#         --config configs/warm_h5.yaml --dataset-root <root>
+purpose: campaign
+repetitions: 3                    # rep0がキャッシュを温める(中央値で吸収)
+
+cache_policy:
+  mode: warm
+
+matrix:
+  format: [hdf5]
+  storage: [hdd, ssd_scratch]
+  num_workers: [0, 8]
+  shuffle_mode: [shard, full]
+  decode: [true]
+
+dataset:
+  ref: synth_100k_224_v1
+  chunk_size_bytes: 1048576     # 1MB
+
+output:
+  jsonl: results/trials_warm.jsonl
+  purpose_tag: campaign
