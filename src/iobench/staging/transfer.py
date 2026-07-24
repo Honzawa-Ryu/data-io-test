@@ -29,26 +29,49 @@ def _dir_size_bytes(path: str) -> int:
 
 
 def _run(cmd: list[str]) -> None:
-    subprocess.run(cmd, check=True, capture_output=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"転送コマンドが失敗しました(exit {proc.returncode}): {' '.join(cmd)}\n"
+            f"{proc.stderr.strip()}"
+        )
+
+
+def _reject_file_src(src: str, tool: str) -> None:
+    if Path(src).is_file():
+        raise ValueError(
+            f"{tool} はディレクトリ転送専用です。単一ファイルのデータセット(hdf5等)は "
+            "rsync か cp を使ってください。"
+        )
 
 
 def transfer_cp(src: str, dst: str) -> None:
-    Path(dst).mkdir(parents=True, exist_ok=True)
-    _run(["cp", "-r", src, dst])
+    if Path(src).is_file():
+        Path(dst).parent.mkdir(parents=True, exist_ok=True)
+        _run(["cp", src, dst])
+    else:
+        Path(dst).mkdir(parents=True, exist_ok=True)
+        # 中身をdst直下へコピー(dst配下にsrcディレクトリ名で入れ子にしない)
+        _run(["cp", "-r", src.rstrip("/") + "/.", dst])
 
 
 def transfer_rsync(src: str, dst: str, bwlimit: str | None = None) -> None:
-    Path(dst).mkdir(parents=True, exist_ok=True)
     cmd = ["rsync", "-a"]
     if bwlimit:
         cmd.append(f"--bwlimit={bwlimit}")
-    # 末尾スラッシュで中身をコピー
-    cmd += [src.rstrip("/") + "/", dst.rstrip("/") + "/"]
+    if Path(src).is_file():
+        Path(dst).parent.mkdir(parents=True, exist_ok=True)
+        cmd += [src, dst]
+    else:
+        Path(dst).mkdir(parents=True, exist_ok=True)
+        # 末尾スラッシュで中身をコピー
+        cmd += [src.rstrip("/") + "/", dst.rstrip("/") + "/"]
     _run(cmd)
 
 
 def transfer_tar_pipe(src: str, dst: str) -> None:
     """tar -C src -cf - . | tar -C dst -xf - (小ファイル大量時にrsyncより速いことがある)。"""
+    _reject_file_src(src, "tar")
     Path(dst).mkdir(parents=True, exist_ok=True)
     src_tar = subprocess.Popen(["tar", "-C", src, "-cf", "-", "."], stdout=subprocess.PIPE)
     dst_tar = subprocess.Popen(["tar", "-C", dst, "-xf", "-"], stdin=src_tar.stdout)
@@ -62,6 +85,7 @@ def transfer_tar_pipe(src: str, dst: str) -> None:
 
 def transfer_parallel_rsync(src: str, dst: str, bwlimit: str | None = None, parallel: int = 4) -> None:
     """src直下のエントリ(シャード)単位でrsyncを並列実行する。"""
+    _reject_file_src(src, "parallel_rsync")
     Path(dst).mkdir(parents=True, exist_ok=True)
     entries = sorted(Path(src).iterdir())
 
@@ -87,6 +111,8 @@ _TOOLS = {
 def run_transfer(tool: str, src: str, dst: str, bwlimit: str | None = None) -> TransferResult:
     if tool not in _TOOLS:
         raise ValueError(f"未知の転送ツール: {tool!r}。利用可能: {list(_TOOLS)}")
+    if not Path(src).exists():
+        raise FileNotFoundError(f"転送元が存在しません: {src}")
     for exe in (["cp"] if tool == "cp" else [tool.split("_")[-1]]):
         if shutil.which(exe) is None:
             raise RuntimeError(f"転送コマンド '{exe}' が見つかりません。")

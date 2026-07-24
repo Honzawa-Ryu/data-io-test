@@ -49,9 +49,10 @@ def aggregate(rows: list[dict]) -> pd.DataFrame:
 def build_breakeven_rows(records: list[TrialRecord]) -> list[dict]:
     """staging試行(T_stage)とloader試行(epoch_seconds)を突合し損益分岐Eの行を作る。
 
-    結合キー: (node_class, format)。loader側は同一条件(num_workers, shuffle_mode, decode,
-    cache_state)で staging_src と staging_dst の両ストレージの計測が揃っている場合のみ、
-    T_epoch_direct(src直読み)と T_epoch_staged(dst読み)として比較する。
+    結合キー: (node_class, format, cache_state)。staging と loader の cache_state が一致し、
+    かつ loader 側の同一条件(num_workers, shuffle_mode, decode)で staging_src と staging_dst
+    の両ストレージの計測が揃っている場合のみ、T_epoch_direct(src直読み)と
+    T_epoch_staged(dst読み)として比較する。
     """
     from iobench.staging.breakeven import compute_breakeven
 
@@ -101,7 +102,7 @@ def build_breakeven_rows(records: list[TrialRecord]) -> list[dict]:
                     "num_workers": workers,
                     "shuffle_mode": shuffle,
                     "decode": decode,
-                    "loader_cache_state": cache_state,
+                    "cache_state": loader_cache_state,
                     "t_stage_seconds": be.t_stage_seconds,
                     "t_epoch_direct_s": be.t_epoch_direct_seconds,
                     "t_epoch_staged_s": be.t_epoch_ssd_seconds,

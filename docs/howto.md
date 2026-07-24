@@ -67,11 +67,17 @@ sbatch -p x-large-andre01 scripts/run_iobench.sh probe
 
 ### ストレージ素性(fio)
 
+結果は stdout 表示に加えて `results/trials_storage.jsonl` に記録され、
+`iobench report --storage-jsonl` で summary の表に載る。**比較したい全ストレージ
+(このノードなら hdd と ssd_scratch)× 代表プリセットを1回ずつ**回しておく。
+
 ```bash
 sbatch -p x-large-andre01 scripts/run_iobench.sh storage --list-presets
 sbatch -p x-large-andre01 scripts/run_iobench.sh storage \
     --target /scratch/honzawa --preset seq_1m_qd32_nj8
-# NFS向け小ファイル: --preset nfs_smallfile_stat_read
+sbatch -p x-large-andre01 scripts/run_iobench.sh storage \
+    --target /workspace/andre01/honzawa --preset seq_1m_qd32_nj8
+# ランダム4K: --preset rand_4k_qd32_nj8 / NFS向け小ファイル: --preset nfs_smallfile_stat_read
 ```
 
 ### 合成データ生成(datagen)— 遅い側(HDD/NFS)に作る
@@ -158,26 +164,36 @@ sbatch scripts/run_iobench.sh slurm template --pattern C \
 
 ## 4. 集計・グラフ化(report)
 
-`--jsonl` は複数指定でき、loader系とstaging系の結果をまとめて集計・突合する:
+report は sbatch 不要(軽い集計なのでログインシェルで直接実行してよい)。
+`--jsonl` は複数指定でき、loader系とstaging系の結果をまとめて集計・突合する。
+**パイプライン一巡の全計測を1つにまとめる**なら:
 
 ```bash
 iobench report \
-    --jsonl results/trials.jsonl \
+    --jsonl results/trials_warm.jsonl \
+    --jsonl results/trials_cold.jsonl \
     --jsonl results/trials_staging.jsonl \
+    --storage-jsonl results/trials_storage.jsonl \
+    --allow-mixed-cache \
     --out results/report
 ```
 
 出力:
 
+- `summary.md` — **パイプライン全体の単一まとめ**(fio表 / ステージング表 /
+  loader cold・warm表 / 損益分岐表)
+- `staging_table.csv` / `loader_table.csv` / `storage_table.csv` — 各計測の集計表
 - `trials_raw.csv` / `trials_aggregated.csv` — 全試行と条件別集計(中央値/min/max)
-- `throughput_comparison.png` / `shardsize_sweep.png` — スループット比較・シャードサイズ掃引
+- `throughput_comparison.png` / `shardsize_sweep.png` / `staging_throughput.png` /
+  `loader_summary.png`(storage×cold/warmのグループ棒)
 - `breakeven_table.csv` — **損益分岐表**。staging の T_stage と loader の epoch_seconds を
-  (node_class × format)で突合し、「Eエポック以上回すならステージングが得」のEを条件ごとに出す。
-  同一 node_class × format で、staging_src と staging_dst 両ストレージの loader 計測が
-  揃っている場合のみ行が生成される。
+  (node_class × format × cache_state)で突合し、「Eエポック以上回すならステージングが得」の
+  Eを条件ごとに出す。同一キーで staging_src と staging_dst 両ストレージの loader 計測が
+  揃っている場合のみ行が生成される(cold staging には cold loader が必要)。
 
-cold/warm が混在した比較は report がエラーで止めるため、loader と同様 staging も
-cold と warm は別jsonlに分けて、比較したい組だけを `--jsonl` で渡す。
+`--allow-mixed-cache` は cold/warm 混在チェックの明示スキップ。集計・表・グラフは常に
+cache_state で分離されるので、summary 用途では安全。逆に単一状態の比較レポートを作るときは
+フラグを付けず、混在したらエラーで気づけるようにしておく。
 
 多重負荷の劣化率は、単独実行と同時実行の結果JSONLを突合する(**多重負荷試験の実施は事前に運用者へ確認すること**):
 

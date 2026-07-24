@@ -81,3 +81,19 @@ class TrialRecord(BaseModel):
     subcommand: Subcommand
     sidecar_ref: str | None = None
     notes: str | None = None
+
+
+class StorageTrialRecord(BaseModel):
+    """storage(fio/smallfile)の1計測。loader系のConditionに合わないため別レコード型。"""
+
+    trial_id: str
+    timestamp: datetime
+    probe: ProbeResult
+    target: str
+    target_logical: str | None = None
+    preset: str
+    runtime_sec: int | None = None
+    metrics: dict[str, float]
+    purpose: Purpose = "dev"
+    subcommand: Literal["storage"] = "storage"
+    library_version: str

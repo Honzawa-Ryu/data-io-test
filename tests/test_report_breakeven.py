@@ -30,7 +30,9 @@ def _loader_record(trial_id: str, storage: str, epoch_seconds: float, cache_stat
     )
 
 
-def _staging_record(trial_id: str, t_stage: float, fmt: str = "raw") -> TrialRecord:
+def _staging_record(
+    trial_id: str, t_stage: float, fmt: str = "raw", cache_state: str = "cold"
+) -> TrialRecord:
     return TrialRecord(
         trial_id=trial_id,
         timestamp="2026-07-24T10:00:00+09:00",
@@ -46,7 +48,7 @@ def _staging_record(trial_id: str, t_stage: float, fmt: str = "raw") -> TrialRec
             staging_dst="ssd_scratch",
         ),
         metrics=Metrics(t_stage_seconds=t_stage, throughput_mb_s=326.0, staged_bytes=3_000_000_000),
-        cache_state="cold",
+        cache_state=cache_state,
         repetition_index=0,
         repetition_total=1,
         library_version="abc123",
@@ -58,13 +60,14 @@ def _staging_record(trial_id: str, t_stage: float, fmt: str = "raw") -> TrialRec
 def test_breakeven_rows_joins_staging_and_loader():
     records = [
         _staging_record("s1", t_stage=100.0),
-        _loader_record("l1", "hdd", epoch_seconds=50.0),
-        _loader_record("l2", "ssd_scratch", epoch_seconds=30.0),
+        _loader_record("l1", "hdd", epoch_seconds=50.0, cache_state="cold"),
+        _loader_record("l2", "ssd_scratch", epoch_seconds=30.0, cache_state="cold"),
     ]
     rows = build_breakeven_rows(records)
     assert len(rows) == 1
     row = rows[0]
     assert row["staging_tool"] == "rsync"
+    assert row["cache_state"] == "cold"
     assert row["t_stage_seconds"] == 100.0
     assert row["t_epoch_direct_s"] == 50.0
     assert row["t_epoch_staged_s"] == 30.0
@@ -76,10 +79,10 @@ def test_breakeven_rows_uses_median_over_repetitions():
         _staging_record("s1", t_stage=90.0),
         _staging_record("s2", t_stage=100.0),
         _staging_record("s3", t_stage=110.0),
-        _loader_record("l1", "hdd", epoch_seconds=40.0),
-        _loader_record("l2", "hdd", epoch_seconds=50.0),
-        _loader_record("l3", "hdd", epoch_seconds=60.0),
-        _loader_record("l4", "ssd_scratch", epoch_seconds=30.0),
+        _loader_record("l1", "hdd", epoch_seconds=40.0, cache_state="cold"),
+        _loader_record("l2", "hdd", epoch_seconds=50.0, cache_state="cold"),
+        _loader_record("l3", "hdd", epoch_seconds=60.0, cache_state="cold"),
+        _loader_record("l4", "ssd_scratch", epoch_seconds=30.0, cache_state="cold"),
     ]
     rows = build_breakeven_rows(records)
     assert len(rows) == 1
@@ -88,11 +91,21 @@ def test_breakeven_rows_uses_median_over_repetitions():
     assert rows[0]["breakeven_epochs"] == 5
 
 
+def test_breakeven_rows_no_join_across_cache_states():
+    # cold staging と warm loader は突合しない(cache_state一致が必須)
+    records = [
+        _staging_record("s1", t_stage=100.0, cache_state="cold"),
+        _loader_record("l1", "hdd", epoch_seconds=50.0, cache_state="warm"),
+        _loader_record("l2", "ssd_scratch", epoch_seconds=30.0, cache_state="warm"),
+    ]
+    assert build_breakeven_rows(records) == []
+
+
 def test_breakeven_rows_requires_both_storages():
     # dst側(ssd_scratch)のloader計測が無ければ行は作られない
     records = [
         _staging_record("s1", t_stage=100.0),
-        _loader_record("l1", "hdd", epoch_seconds=50.0),
+        _loader_record("l1", "hdd", epoch_seconds=50.0, cache_state="cold"),
     ]
     assert build_breakeven_rows(records) == []
 
@@ -100,8 +113,8 @@ def test_breakeven_rows_requires_both_storages():
 def test_breakeven_rows_no_join_across_formats():
     records = [
         _staging_record("s1", t_stage=100.0, fmt="webdataset"),
-        _loader_record("l1", "hdd", epoch_seconds=50.0),
-        _loader_record("l2", "ssd_scratch", epoch_seconds=30.0),
+        _loader_record("l1", "hdd", epoch_seconds=50.0, cache_state="cold"),
+        _loader_record("l2", "ssd_scratch", epoch_seconds=30.0, cache_state="cold"),
     ]
     assert build_breakeven_rows(records) == []
 

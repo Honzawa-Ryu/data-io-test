@@ -24,6 +24,11 @@ def _decode_bytes(data: bytes) -> torch.Tensor:
 class RawFileDataset(Dataset):
     def __init__(self, root: str, decode: bool = True) -> None:
         self.paths = sorted(Path(root).rglob("*.jpg")) + sorted(Path(root).rglob("*.png"))
+        if not self.paths:
+            raise FileNotFoundError(
+                f"raw データセットが空です: {root} 配下に *.jpg/*.png がありません。"
+                "--dataset-root と実験定義の format の対応を確認してください。"
+            )
         self.decode = decode
 
     def __len__(self) -> int:
@@ -60,6 +65,11 @@ class WebDatasetShards(IterableDataset):
                 "shard(シャード内シャッフル)を使うか、full を測るなら map系フォーマットを使ってください。"
             )
         self.shards = sorted(Path(root).glob("*.tar"))
+        if not self.shards:
+            raise FileNotFoundError(
+                f"webdataset データセットが空です: {root} 直下に *.tar がありません。"
+                "--dataset-root と実験定義の format の対応を確認してください。"
+            )
         self.decode = decode
         self.shuffle_mode = shuffle_mode
         self.seed = seed

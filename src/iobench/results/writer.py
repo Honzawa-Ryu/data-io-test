@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-from iobench.results.schema import TrialRecord
+from pydantic import BaseModel
+
+from iobench.results.schema import StorageTrialRecord, TrialRecord
 
 
-def append_record(record: TrialRecord, jsonl_path: str) -> None:
+def append_record(record: BaseModel, jsonl_path: str) -> None:
     path = Path(jsonl_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as f:
@@ -23,6 +25,17 @@ def load_records(jsonl_path: str) -> list[TrialRecord]:
             if not line:
                 continue
             records.append(TrialRecord.model_validate_json(line))
+    return records
+
+
+def load_storage_records(jsonl_path: str) -> list[StorageTrialRecord]:
+    records: list[StorageTrialRecord] = []
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            records.append(StorageTrialRecord.model_validate_json(line))
     return records
 
 

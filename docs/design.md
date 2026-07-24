@@ -117,6 +117,21 @@ class Metrics(BaseModel):
     epoch_seconds: float | None      # loader: 1エポック読み切りの実時間(breakevenの分母)
     staged_bytes: int | None         # staging: 転送総バイト(他データサイズへの外挿用)
 
+class StorageTrialRecord(BaseModel):
+    """storage(fio/smallfile)の1計測。Conditionに合わないため別レコード型。
+    results/trials_storage.jsonl に記録し、report --storage-jsonl で読む。"""
+    trial_id: str
+    timestamp: datetime
+    probe: ProbeResult
+    target: str
+    target_logical: str | None   # resolved_pathsから最長一致で解決(hdd/ssd_scratch等)
+    preset: str
+    runtime_sec: int | None
+    metrics: dict[str, float]    # throughput_mb_s, iops, meta_ops_s 等プリセット依存
+    purpose: Literal["dev", "campaign"]
+    subcommand: Literal["storage"]
+    library_version: str
+
 class TrialRecord(BaseModel):
     trial_id: str            # uuid4
     timestamp: datetime
