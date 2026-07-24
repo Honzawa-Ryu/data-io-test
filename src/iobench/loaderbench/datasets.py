@@ -26,7 +26,7 @@ class RawFileDataset(Dataset):
         self.paths = sorted(Path(root).rglob("*.jpg")) + sorted(Path(root).rglob("*.png"))
         if not self.paths:
             raise FileNotFoundError(
-                f"raw データセットが空です: {root} 配下に *.jpg/*.png がありません。"
+                f"raw データセットが空です: {root} 配下に *.jpg/*.png がありません。\n"
                 "--dataset-root と実験定義の format の対応を確認してください。"
             )
         self.decode = decode
